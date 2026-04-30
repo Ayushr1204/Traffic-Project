@@ -1,0 +1,66 @@
+# ──────────────────────────────────────────────
+# NGD Traffic Route Analyzer — Docker Compose
+# ──────────────────────────────────────────────
+# Usage:
+#   docker-compose up --build          # first run
+#   docker-compose up                  # subsequent runs
+#   docker-compose down -v             # tear down + remove volumes
+
+version: "3.9"
+
+services:
+  # ── Neo4j Graph Database ──────────────────────
+  neo4j:
+    image: neo4j:5-community
+    container_name: ngd-neo4j
+    ports:
+      - "7474:7474"   # Browser UI
+      - "7687:7687"   # Bolt protocol
+    environment:
+      NEO4J_AUTH: neo4j/12345678
+      NEO4J_PLUGINS: '[]'
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:7474 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # ── Apache Cassandra ──────────────────────────
+  cassandra:
+    image: cassandra:4.1
+    container_name: ngd-cassandra
+    ports:
+      - "9042:9042"
+    volumes:
+      - cassandra_data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'describe cluster' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+
+  # ── Streamlit Application ─────────────────────
+  app:
+    build: .
+    container_name: ngd-app
+    ports:
+      - "8501:8501"
+    environment:
+      NEO4J_URI: bolt://neo4j:7687
+      NEO4J_USER: neo4j
+      NEO4J_PASSWORD: "12345678"
+      NEO4J_HOST: neo4j
+      CASSANDRA_HOST: cassandra
+      CASSANDRA_KEYSPACE: traffic
+    depends_on:
+      neo4j:
+        condition: service_healthy
+      cassandra:
+        condition: service_healthy
+    restart: on-failure
+
+volumes:
+  neo4j_data:
+  cassandra_data:
