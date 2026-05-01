@@ -58,7 +58,7 @@ pipeline {
 
         stage('Build') {
             steps {
-                runCmd('%COMPOSE_CMD% build --pull', "${env.COMPOSE_CMD} build --pull")
+                runCmd('%COMPOSE_CMD% build --pull', '$COMPOSE_CMD build --pull')
             }
         }
 
@@ -67,14 +67,14 @@ pipeline {
                 // Unit tests do not need Neo4j/Cassandra runtime.
                 runCmd(
                     '%COMPOSE_CMD% run --rm --no-deps app python -m pytest tests/ -v --tb=short',
-                    "${env.COMPOSE_CMD} run --rm --no-deps app python -m pytest tests/ -v --tb=short"
+                    '$COMPOSE_CMD run --rm --no-deps app python -m pytest tests/ -v --tb=short'
                 )
             }
             post {
                 always {
                     runCmd(
                         '%COMPOSE_CMD% down --remove-orphans || exit 0',
-                        "${env.COMPOSE_CMD} down --remove-orphans || true"
+                        '$COMPOSE_CMD down --remove-orphans || true'
                     )
                 }
             }
@@ -82,8 +82,8 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', "${env.COMPOSE_CMD} down --remove-orphans || true")
-                runCmd('%COMPOSE_CMD% up -d', "${env.COMPOSE_CMD} up -d")
+                runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', '$COMPOSE_CMD down --remove-orphans || true')
+                runCmd('%COMPOSE_CMD% up -d', '$COMPOSE_CMD up -d')
                 runCmd('timeout /t 45 /nobreak', 'sleep 45')
             }
         }
@@ -94,7 +94,7 @@ pipeline {
                     'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"',
                     'curl -fsS http://localhost:8501/_stcore/health >/dev/null'
                 )
-                runCmd('%COMPOSE_CMD% ps', "${env.COMPOSE_CMD} ps")
+                runCmd('%COMPOSE_CMD% ps', '$COMPOSE_CMD ps')
             }
         }
     }
@@ -107,8 +107,8 @@ pipeline {
         }
         failure {
             echo 'PIPELINE FAILED - check stage logs.'
-            runCmd('%COMPOSE_CMD% logs --no-color || exit 0', "${env.COMPOSE_CMD} logs --no-color || true")
-            runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', "${env.COMPOSE_CMD} down --remove-orphans || true")
+            runCmd('%COMPOSE_CMD% logs --no-color || exit 0', '$COMPOSE_CMD logs --no-color || true')
+            runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', '$COMPOSE_CMD down --remove-orphans || true')
         }
         always {
             echo 'Pipeline execution finished.'
