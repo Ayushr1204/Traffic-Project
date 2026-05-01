@@ -14,6 +14,14 @@ def runCompose(String args) {
     }
 }
 
+def cleanupNamedContainers() {
+    if (isUnix()) {
+        sh 'docker rm -f ngd-neo4j ngd-cassandra ngd-app >/dev/null 2>&1 || true'
+    } else {
+        bat 'docker rm -f ngd-neo4j ngd-cassandra ngd-app >nul 2>&1 || exit 0'
+    }
+}
+
 def runStatus(String windowsCmd, String unixCmd = null) {
     if (isUnix()) {
         return sh(script: (unixCmd ?: windowsCmd), returnStatus: true)
@@ -71,6 +79,8 @@ pipeline {
 
         stage('Deploy') {
             steps {
+                // These fixed names are defined in docker-compose.yml and may exist from prior/manual runs.
+                cleanupNamedContainers()
                 runCompose('down --remove-orphans')
                 runCompose('up -d')
                 runCmd('timeout /t 45 /nobreak', 'sleep 45')
@@ -98,6 +108,7 @@ pipeline {
             echo 'PIPELINE FAILED - check stage logs.'
             runCompose('logs --no-color')
             runCompose('down --remove-orphans')
+            cleanupNamedContainers()
         }
         always {
             echo 'Pipeline execution finished.'
