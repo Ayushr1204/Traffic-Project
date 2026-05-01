@@ -1,3 +1,18 @@
+def runCmd(String windowsCmd, String unixCmd = null) {
+    if (isUnix()) {
+        sh(unixCmd ?: windowsCmd)
+    } else {
+        bat(windowsCmd)
+    }
+}
+
+def runStatus(String windowsCmd, String unixCmd = null) {
+    if (isUnix()) {
+        return sh(script: (unixCmd ?: windowsCmd), returnStatus: true)
+    }
+    return bat(script: windowsCmd, returnStatus: true)
+}
+
 pipeline {
     agent any
 
@@ -24,16 +39,16 @@ pipeline {
         stage('Checkout') {
             steps {
                 checkout scm
-                bat 'git rev-parse --short HEAD'
+                runCmd('git rev-parse --short HEAD')
             }
         }
 
         stage('Prepare Tools') {
             steps {
                 script {
-                    def hasDockerComposeV2 = (bat(
-                        returnStatus: true,
-                        script: '@echo off\r\ndocker compose version >nul 2>&1'
+                    def hasDockerComposeV2 = (runStatus(
+                        '@echo off\r\ndocker compose version >nul 2>&1',
+                        'docker compose version >/dev/null 2>&1'
                     ) == 0)
                     env.COMPOSE_CMD = hasDockerComposeV2 ? 'docker compose' : 'docker-compose'
                     echo "Using compose command: ${env.COMPOSE_CMD}"
@@ -43,34 +58,43 @@ pipeline {
 
         stage('Build') {
             steps {
-                bat '%COMPOSE_CMD% build --pull'
+                runCmd('%COMPOSE_CMD% build --pull', "${env.COMPOSE_CMD} build --pull")
             }
         }
 
         stage('Test') {
             steps {
                 // Unit tests do not need Neo4j/Cassandra runtime.
-                bat '%COMPOSE_CMD% run --rm --no-deps app python -m pytest tests/ -v --tb=short'
+                runCmd(
+                    '%COMPOSE_CMD% run --rm --no-deps app python -m pytest tests/ -v --tb=short',
+                    "${env.COMPOSE_CMD} run --rm --no-deps app python -m pytest tests/ -v --tb=short"
+                )
             }
             post {
                 always {
-                    bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
+                    runCmd(
+                        '%COMPOSE_CMD% down --remove-orphans || exit 0',
+                        "${env.COMPOSE_CMD} down --remove-orphans || true"
+                    )
                 }
             }
         }
 
         stage('Deploy') {
             steps {
-                bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
-                bat '%COMPOSE_CMD% up -d'
-                bat 'timeout /t 45 /nobreak'
+                runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', "${env.COMPOSE_CMD} down --remove-orphans || true")
+                runCmd('%COMPOSE_CMD% up -d', "${env.COMPOSE_CMD} up -d")
+                runCmd('timeout /t 45 /nobreak', 'sleep 45')
             }
         }
 
         stage('Verify') {
             steps {
-                bat 'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"'
-                bat '%COMPOSE_CMD% ps'
+                runCmd(
+                    'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"',
+                    'curl -fsS http://localhost:8501/_stcore/health >/dev/null'
+                )
+                runCmd('%COMPOSE_CMD% ps', "${env.COMPOSE_CMD} ps")
             }
         }
     }
@@ -83,8 +107,8 @@ pipeline {
         }
         failure {
             echo 'PIPELINE FAILED - check stage logs.'
-            bat '%COMPOSE_CMD% logs --no-color || exit 0'
-            bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
+            runCmd('%COMPOSE_CMD% logs --no-color || exit 0', "${env.COMPOSE_CMD} logs --no-color || true")
+            runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', "${env.COMPOSE_CMD} down --remove-orphans || true")
         }
         always {
             echo 'Pipeline execution finished.'
