@@ -6,6 +6,14 @@ def runCmd(String windowsCmd, String unixCmd = null) {
     }
 }
 
+def runCompose(String args) {
+    if (isUnix()) {
+        sh "docker compose ${args} || docker-compose ${args}"
+    } else {
+        bat "docker compose ${args} || docker-compose ${args}"
+    }
+}
+
 def runStatus(String windowsCmd, String unixCmd = null) {
     if (isUnix()) {
         return sh(script: (unixCmd ?: windowsCmd), returnStatus: true)
@@ -24,7 +32,6 @@ pipeline {
     environment {
         COMPOSE_PROJECT_NAME = 'ngd-traffic-demo'
         APP_PORT             = '8501'
-        COMPOSE_CMD          = ''
     }
 
     options {
@@ -43,22 +50,9 @@ pipeline {
             }
         }
 
-        stage('Prepare Tools') {
-            steps {
-                script {
-                    def hasDockerComposeV2 = (runStatus(
-                        '@echo off\r\ndocker compose version >nul 2>&1',
-                        'docker compose version >/dev/null 2>&1'
-                    ) == 0)
-                    env.COMPOSE_CMD = hasDockerComposeV2 ? 'docker compose' : 'docker-compose'
-                    echo "Using compose command: ${env.COMPOSE_CMD}"
-                }
-            }
-        }
-
         stage('Build') {
             steps {
-                runCmd('%COMPOSE_CMD% build --pull', '$COMPOSE_CMD build --pull')
+                runCompose('build --pull')
             }
         }
 
@@ -67,23 +61,22 @@ pipeline {
                 // Unit tests do not need Neo4j/Cassandra runtime.
                 runCmd(
                     '%COMPOSE_CMD% run --rm --no-deps app python -m pytest tests/ -v --tb=short',
-                    '$COMPOSE_CMD run --rm --no-deps app python -m pytest tests/ -v --tb=short'
+                    'docker compose run --rm --no-deps app python -m pytest tests/ -v --tb=short || docker-compose run --rm --no-deps app python -m pytest tests/ -v --tb=short'
                 )
             }
             post {
                 always {
-                    runCmd(
-                        '%COMPOSE_CMD% down --remove-orphans || exit 0',
-                        '$COMPOSE_CMD down --remove-orphans || true'
-                    )
+                    runCmd('docker compose down --remove-orphans || docker-compose down --remove-orphans || exit 0',
+                           'docker compose down --remove-orphans || docker-compose down --remove-orphans || true')
                 }
             }
         }
 
         stage('Deploy') {
             steps {
-                runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', '$COMPOSE_CMD down --remove-orphans || true')
-                runCmd('%COMPOSE_CMD% up -d', '$COMPOSE_CMD up -d')
+                runCmd('docker compose down --remove-orphans || docker-compose down --remove-orphans || exit 0',
+                       'docker compose down --remove-orphans || docker-compose down --remove-orphans || true')
+                runCmd('docker compose up -d || docker-compose up -d', 'docker compose up -d || docker-compose up -d')
                 runCmd('timeout /t 45 /nobreak', 'sleep 45')
             }
         }
@@ -94,7 +87,7 @@ pipeline {
                     'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"',
                     'curl -fsS http://localhost:8501/_stcore/health >/dev/null'
                 )
-                runCmd('%COMPOSE_CMD% ps', '$COMPOSE_CMD ps')
+                runCmd('docker compose ps || docker-compose ps', 'docker compose ps || docker-compose ps')
             }
         }
     }
@@ -107,8 +100,10 @@ pipeline {
         }
         failure {
             echo 'PIPELINE FAILED - check stage logs.'
-            runCmd('%COMPOSE_CMD% logs --no-color || exit 0', '$COMPOSE_CMD logs --no-color || true')
-            runCmd('%COMPOSE_CMD% down --remove-orphans || exit 0', '$COMPOSE_CMD down --remove-orphans || true')
+            runCmd('docker compose logs --no-color || docker-compose logs --no-color || exit 0',
+                   'docker compose logs --no-color || docker-compose logs --no-color || true')
+            runCmd('docker compose down --remove-orphans || docker-compose down --remove-orphans || exit 0',
+                   'docker compose down --remove-orphans || docker-compose down --remove-orphans || true')
         }
         always {
             echo 'Pipeline execution finished.'
