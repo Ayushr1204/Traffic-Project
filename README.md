@@ -143,3 +143,49 @@ Tests cover:
 - **All-paths DFS** — enumeration, depth limits
 - **Graph preprocessing** — weight merging, parallel edges, missing data
 - **Road lookup** — directional queries, missing cities
+
+## 🔁 Jenkins CI/CD Demo (GitHub -> Jenkins -> Deploy)
+
+This repository includes a ready `Jenkinsfile` for your AAT DevOps demo.
+
+### What the pipeline does
+
+1. **Checkout** latest code from GitHub
+2. **Build** Docker image(s)
+3. **Test** with `pytest`
+4. **Deploy** full stack (`neo4j`, `cassandra`, `app`) via Docker Compose
+5. **Verify** app health endpoint at `http://localhost:8501/_stcore/health`
+
+### Trigger mode for demo
+
+- The pipeline uses **SCM polling every 2 minutes**:
+  - `pollSCM('H/2 * * * *')`
+- This satisfies "automatically or periodically fetched changes from GitHub".
+- You can also add a GitHub webhook (`/github-webhook/`) for immediate trigger.
+
+### Jenkins job setup (recommended)
+
+1. Create a **Pipeline** job in Jenkins.
+2. Under **Pipeline Definition**, choose **Pipeline script from SCM**.
+3. SCM: **Git**; provide your GitHub repo URL and credentials if private.
+4. Branch: `*/main` (or your active branch).
+5. Script Path: `Jenkinsfile`.
+6. Save and run once manually to validate environment.
+
+### Jenkins node prerequisites
+
+- Docker Desktop (running)
+- Git
+- Jenkins running with permission to execute Docker CLI
+- Required Jenkins plugins:
+  - Pipeline
+  - Git
+  - GitHub Integration (optional but useful for webhook trigger)
+
+### Demo flow to show examiner
+
+1. Make a small code change in GitHub (for example, UI text in `app.py`).
+2. Commit and push.
+3. Wait for Jenkins poll (or trigger manually/webhook).
+4. Show Jenkins stages: Checkout -> Build -> Test -> Deploy -> Verify.
+5. Open deployed app at `http://localhost:8501`.

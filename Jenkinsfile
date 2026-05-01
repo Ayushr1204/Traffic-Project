@@ -1,138 +1,93 @@
-/*
- * ══════════════════════════════════════════════════════════════
- *  NGD Traffic Route Analyzer — Jenkins CI/CD Pipeline
- * ══════════════════════════════════════════════════════════════
- *
- *  Stages:
- *    1. Checkout     — Pull latest code from GitHub
- *    2. Build        — Build Docker images via docker-compose
- *    3. Test         — Run pytest unit tests inside a container
- *    4. Deploy       — Deploy the full stack (Neo4j + Cassandra + App)
- *    5. Verify       — Smoke-test the deployed application
- *
- *  Trigger: Poll SCM every 2 minutes OR manual build
- * ══════════════════════════════════════════════════════════════
- */
-
 pipeline {
     agent any
 
     triggers {
-        // Poll GitHub every 2 minutes for changes
+        // Periodically check GitHub for new commits (acts as auto-fetch trigger)
         pollSCM('H/2 * * * *')
     }
 
     environment {
-        COMPOSE_PROJECT_NAME = 'ngd-traffic'
+        COMPOSE_PROJECT_NAME = 'ngd-traffic-demo'
         APP_PORT             = '8501'
-        NEO4J_PORT           = '7687'
-        CASSANDRA_PORT       = '9042'
+        COMPOSE_CMD          = ''
     }
 
     options {
-        timeout(time: 15, unit: 'MINUTES')
+        timeout(time: 20, unit: 'MINUTES')
+        disableConcurrentBuilds()
         timestamps()
         buildDiscarder(logRotator(numToKeepStr: '10'))
     }
 
     stages {
 
-        // ─────────────────────────────────────────
-        // STAGE 1: Checkout
-        // ─────────────────────────────────────────
         stage('Checkout') {
             steps {
-                echo '════════════════════════════════════════'
-                echo '  📥 Stage 1: Pulling latest code'
-                echo '════════════════════════════════════════'
                 checkout scm
+                bat 'git rev-parse --short HEAD'
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 2: Build
-        // ─────────────────────────────────────────
+        stage('Prepare Tools') {
+            steps {
+                script {
+                    def hasDockerComposeV2 = (bat(
+                        returnStatus: true,
+                        script: '@echo off\r\ndocker compose version >nul 2>&1'
+                    ) == 0)
+                    env.COMPOSE_CMD = hasDockerComposeV2 ? 'docker compose' : 'docker-compose'
+                    echo "Using compose command: ${env.COMPOSE_CMD}"
+                }
+            }
+        }
+
         stage('Build') {
             steps {
-                echo '════════════════════════════════════════'
-                echo '  🔨 Stage 2: Building Docker images'
-                echo '════════════════════════════════════════'
-                bat 'docker-compose build --no-cache'
+                bat '%COMPOSE_CMD% build --pull'
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 3: Test
-        // ─────────────────────────────────────────
         stage('Test') {
             steps {
-                echo '════════════════════════════════════════'
-                echo '  🧪 Stage 3: Running unit tests'
-                echo '════════════════════════════════════════'
-                // Run pytest inside the app image (no DB needed for unit tests)
-                bat 'docker-compose run --rm --no-deps -e TESTING=1 app python -m pytest tests/ -v --tb=short'
+                // Unit tests do not need Neo4j/Cassandra runtime.
+                bat '%COMPOSE_CMD% run --rm --no-deps app python -m pytest tests/ -v --tb=short'
             }
             post {
                 always {
-                    echo 'Test stage completed.'
-                }
-                failure {
-                    echo '❌ Tests FAILED — aborting pipeline.'
+                    bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
                 }
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 4: Deploy
-        // ─────────────────────────────────────────
         stage('Deploy') {
             steps {
-                echo '════════════════════════════════════════'
-                echo '  🚀 Stage 4: Deploying application'
-                echo '════════════════════════════════════════'
-                // Tear down any previous deployment
-                bat 'docker-compose down --remove-orphans || exit 0'
-                // Deploy the full stack
-                bat 'docker-compose up -d'
-                // Wait for services to stabilize
-                bat 'timeout /t 30 /nobreak'
+                bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
+                bat '%COMPOSE_CMD% up -d'
+                bat 'timeout /t 45 /nobreak'
             }
         }
 
-        // ─────────────────────────────────────────
-        // STAGE 5: Verify Deployment
-        // ─────────────────────────────────────────
         stage('Verify') {
             steps {
-                echo '════════════════════════════════════════'
-                echo '  ✅ Stage 5: Verifying deployment'
-                echo '════════════════════════════════════════'
-                // Check if the Streamlit app is responding
-                bat 'curl -f http://localhost:%APP_PORT%/_stcore/health || exit 1'
-                echo '🎉 Application is live and healthy!'
+                bat 'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"'
+                bat '%COMPOSE_CMD% ps'
             }
         }
     }
 
     post {
         success {
-            echo ''
-            echo '════════════════════════════════════════════════'
-            echo '  ✅ PIPELINE SUCCEEDED'
-            echo '  App: http://localhost:8501'
-            echo '  Neo4j Browser: http://localhost:7474'
-            echo '════════════════════════════════════════════════'
+            echo 'PIPELINE SUCCEEDED'
+            echo 'App URL: http://localhost:8501'
+            echo 'Neo4j Browser URL: http://localhost:7474'
         }
         failure {
-            echo ''
-            echo '════════════════════════════════════════════════'
-            echo '  ❌ PIPELINE FAILED — Check logs above'
-            echo '════════════════════════════════════════════════'
-            // Clean up on failure
-            bat 'docker-compose down --remove-orphans || exit 0'
+            echo 'PIPELINE FAILED - check stage logs.'
+            bat '%COMPOSE_CMD% logs --no-color || exit 0'
+            bat '%COMPOSE_CMD% down --remove-orphans || exit 0'
         }
         always {
-            echo 'Pipeline run finished.'
+            echo 'Pipeline execution finished.'
         }
     }
 }
