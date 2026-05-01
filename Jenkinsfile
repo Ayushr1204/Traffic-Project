@@ -89,11 +89,29 @@ pipeline {
 
         stage('Verify') {
             steps {
-                // App startup can lag after container reports "running"; use retries.
-                runCmd(
-                    'powershell -NoProfile -Command "$ok=$false; 1..20 | ForEach-Object { try { $resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; if ($resp.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep -Seconds 3 }; if (-not $ok) { exit 1 }"',
-                    'for i in $(seq 1 20); do if curl -fsS http://localhost:8501/_stcore/health >/dev/null; then exit 0; fi; sleep 3; done; exit 1'
-                )
+                // Verify from the correct runtime context:
+                // - Linux Jenkins agents often cannot reach app via localhost:8501 directly.
+                // - So we probe health from inside the app container.
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            set +e
+                            if command -v docker-compose >/dev/null 2>&1; then
+                              C="docker-compose"
+                            else
+                              C="docker compose"
+                            fi
+
+                            for i in $(seq 1 20); do
+                              $C exec -T app python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5)" && exit 0
+                              sleep 3
+                            done
+                            exit 1
+                        '''
+                    } else {
+                        bat 'powershell -NoProfile -Command "$ok=$false; 1..20 | ForEach-Object { try { $resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; if ($resp.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep -Seconds 3 }; if (-not $ok) { exit 1 }"'
+                    }
+                }
                 runCompose('ps')
             }
         }
