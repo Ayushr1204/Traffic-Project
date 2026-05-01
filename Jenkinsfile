@@ -89,9 +89,10 @@ pipeline {
 
         stage('Verify') {
             steps {
+                // App startup can lag after container reports "running"; use retries.
                 runCmd(
-                    'powershell -NoProfile -Command "$resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing; if ($resp.StatusCode -ne 200) { exit 1 }"',
-                    'curl -fsS http://localhost:8501/_stcore/health >/dev/null'
+                    'powershell -NoProfile -Command "$ok=$false; 1..20 | ForEach-Object { try { $resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; if ($resp.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep -Seconds 3 }; if (-not $ok) { exit 1 }"',
+                    'for i in $(seq 1 20); do if docker-compose exec -T app python -c "import urllib.request; urllib.request.urlopen(\"http://localhost:8501/_stcore/health\", timeout=5)"; then exit 0; fi; sleep 3; done; exit 1'
                 )
                 runCompose('ps')
             }
