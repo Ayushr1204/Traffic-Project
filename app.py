@@ -39,7 +39,7 @@ else:
     _LOGO_B64 = None
 
 st.set_page_config(
-    page_title="NGD Traffic Route Analyzer",
+    page_title="Next-Gen Traffic Route Analyzer",
     page_icon=_LOGO_PATH if os.path.exists(_LOGO_PATH) else "🛣️",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -522,7 +522,7 @@ else:
 
 st.markdown(f"""
 <div class="main-header">
-    <h1>{_logo_html}NGD Traffic Route Analyzer</h1>
+    <h1>{_logo_html}Next-Gen Traffic Route Analyzer</h1>
     <p>Real-time traffic analysis across 20 major Indian cities
        <span class="badge">Neo4j + Cassandra</span>
     </p>
