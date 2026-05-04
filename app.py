@@ -522,7 +522,7 @@ else:
 
 st.markdown(f"""
 <div class="main-header">
-    <h1>{_logo_html}Next-Gen Traffic Route Analyzer</h1>
+    <h1>{_logo_html}Smart Traffic Route Analyzer</h1>
     <p>Real-time traffic analysis across 20 major Indian cities
        <span class="badge">Neo4j + Cassandra</span>
     </p>
