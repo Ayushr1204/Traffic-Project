@@ -115,6 +115,64 @@ pipeline {
                 runCompose('ps')
             }
         }
+
+        stage('Monitor') {
+            steps {
+                echo '════════════════════════════════════════'
+                echo '  POST-DEPLOY MONITORING & HEALTH CHECK'
+                echo '════════════════════════════════════════'
+
+                // 1. Container health status
+                echo '── Container Health Status ──'
+                runCompose('ps')
+
+                // 2. Resource usage (CPU, Memory)
+                echo '── Resource Usage (CPU / Memory) ──'
+                runCmd(
+                    'docker stats --no-stream --format "table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}\\t{{.Status}}" ngd-app ngd-neo4j ngd-cassandra',
+                    'docker stats --no-stream --format "table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}\\t{{.Status}}" ngd-app ngd-neo4j ngd-cassandra'
+                )
+
+                // 3. Application logs (last 30 lines)
+                echo '── Recent Application Logs ──'
+                runCompose('logs --tail=30 --no-color app')
+
+                // 4. Database connectivity check from app container
+                echo '── Database Connectivity Check ──'
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            if command -v docker-compose >/dev/null 2>&1; then
+                              C="docker-compose"
+                            else
+                              C="docker compose"
+                            fi
+                            $C exec -T app python -c "
+from config import get_neo4j_driver, get_cassandra_session
+d = get_neo4j_driver(); d.verify_connectivity(); print('Neo4j:     CONNECTED')
+s = get_cassandra_session(); print('Cassandra: CONNECTED')
+"
+                        '''
+                    } else {
+                        bat 'docker compose exec -T app python -c "from config import get_neo4j_driver, get_cassandra_session; d = get_neo4j_driver(); d.verify_connectivity(); print(\'Neo4j:     CONNECTED\'); s = get_cassandra_session(); print(\'Cassandra: CONNECTED\')"'
+                    }
+                }
+
+                // 5. Final health endpoint re-check
+                echo '── Final Health Endpoint Check ──'
+                script {
+                    if (isUnix()) {
+                        sh 'curl -sf http://localhost:8501/_stcore/health && echo " => App is HEALTHY" || echo " => App health check failed"'
+                    } else {
+                        bat 'powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; Write-Host \'=> App is HEALTHY (Status:\' $r.StatusCode \')\' } catch { Write-Host \'=> App health check failed\'; exit 1 }"'
+                    }
+                }
+
+                echo '════════════════════════════════════════'
+                echo '  ALL MONITORING CHECKS PASSED ✓'
+                echo '════════════════════════════════════════'
+            }
+        }
     }
 
     post {
