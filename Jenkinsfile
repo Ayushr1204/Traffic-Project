@@ -128,10 +128,16 @@ pipeline {
 
                 // 2. Resource usage (CPU, Memory)
                 echo '── Resource Usage (CPU / Memory) ──'
-                runCmd(
-                    'docker stats --no-stream --format "table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}\\t{{.Status}}" ngd-app ngd-neo4j ngd-cassandra',
-                    'docker stats --no-stream --format "table {{.Name}}\\t{{.CPUPerc}}\\t{{.MemUsage}}\\t{{.NetIO}}\\t{{.Status}}" ngd-app ngd-neo4j ngd-cassandra'
-                )
+                script {
+                    if (isUnix()) {
+                        sh '''
+                            export PATH="/c/Program Files/Docker/Docker/resources/bin:/c/ProgramData/DockerDesktop/version-bin:$PATH"
+                            docker stats --no-stream ngd-app ngd-neo4j ngd-cassandra
+                        '''
+                    } else {
+                        bat 'docker stats --no-stream ngd-app ngd-neo4j ngd-cassandra'
+                    }
+                }
 
                 // 3. Application logs (last 30 lines)
                 echo '── Recent Application Logs ──'
