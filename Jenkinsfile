@@ -1,6 +1,11 @@
+def dockerPath() {
+    // Ensure Docker Desktop paths are available (Windows Git Bash / WSL in Jenkins)
+    return 'export PATH="/c/Program Files/Docker/Docker/resources/bin:/c/ProgramData/DockerDesktop/version-bin:$PATH"'
+}
+
 def runCmd(String windowsCmd, String unixCmd = null) {
     if (isUnix()) {
-        sh(unixCmd ?: windowsCmd)
+        sh "${dockerPath()} && ${unixCmd ?: windowsCmd}"
     } else {
         bat(windowsCmd)
     }
@@ -8,7 +13,7 @@ def runCmd(String windowsCmd, String unixCmd = null) {
 
 def runCompose(String args) {
     if (isUnix()) {
-        sh "if command -v docker-compose >/dev/null 2>&1; then docker-compose ${args}; else docker compose ${args}; fi"
+        sh "${dockerPath()} && docker compose ${args}"
     } else {
         bat "docker compose ${args} || docker-compose ${args}"
     }
@@ -94,20 +99,15 @@ pipeline {
                 // - So we probe health from inside the app container.
                 script {
                     if (isUnix()) {
-                        sh '''
+                        sh """
+                            ${dockerPath()}
                             set +e
-                            if command -v docker-compose >/dev/null 2>&1; then
-                              C="docker-compose"
-                            else
-                              C="docker compose"
-                            fi
-
-                            for i in $(seq 1 20); do
-                              $C exec -T app python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5)" && exit 0
+                            for i in \$(seq 1 20); do
+                              docker compose exec -T app python -c "import urllib.request as u; u.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=5)" && exit 0
                               sleep 3
                             done
                             exit 1
-                        '''
+                        """
                     } else {
                         bat 'powershell -NoProfile -Command "$ok=$false; 1..20 | ForEach-Object { try { $resp = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; if ($resp.StatusCode -eq 200) { $ok=$true; break } } catch {}; Start-Sleep -Seconds 3 }; if (-not $ok) { exit 1 }"'
                     }
@@ -141,18 +141,10 @@ pipeline {
                 echo '── Database Connectivity Check ──'
                 script {
                     if (isUnix()) {
-                        sh '''
-                            if command -v docker-compose >/dev/null 2>&1; then
-                              C="docker-compose"
-                            else
-                              C="docker compose"
-                            fi
-                            $C exec -T app python -c "
-from config import get_neo4j_driver, get_cassandra_session
-d = get_neo4j_driver(); d.verify_connectivity(); print('Neo4j:     CONNECTED')
-s = get_cassandra_session(); print('Cassandra: CONNECTED')
-"
-                        '''
+                        sh """
+                            ${dockerPath()}
+                            docker compose exec -T app python -c "from config import get_neo4j_driver, get_cassandra_session; d = get_neo4j_driver(); d.verify_connectivity(); print('Neo4j:     CONNECTED'); s = get_cassandra_session(); print('Cassandra: CONNECTED')"
+                        """
                     } else {
                         bat 'docker compose exec -T app python -c "from config import get_neo4j_driver, get_cassandra_session; d = get_neo4j_driver(); d.verify_connectivity(); print(\'Neo4j:     CONNECTED\'); s = get_cassandra_session(); print(\'Cassandra: CONNECTED\')"'
                     }
@@ -162,7 +154,7 @@ s = get_cassandra_session(); print('Cassandra: CONNECTED')
                 echo '── Final Health Endpoint Check ──'
                 script {
                     if (isUnix()) {
-                        sh 'curl -sf http://localhost:8501/_stcore/health && echo " => App is HEALTHY" || echo " => App health check failed"'
+                        sh "${dockerPath()} && curl -sf http://localhost:8501/_stcore/health && echo ' => App is HEALTHY' || echo ' => App health check failed'"
                     } else {
                         bat 'powershell -NoProfile -Command "try { $r = Invoke-WebRequest -Uri http://localhost:%APP_PORT%/_stcore/health -UseBasicParsing -TimeoutSec 5; Write-Host \'=> App is HEALTHY (Status:\' $r.StatusCode \')\' } catch { Write-Host \'=> App health check failed\'; exit 1 }"'
                     }
